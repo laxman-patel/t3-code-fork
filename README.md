@@ -1,5 +1,15 @@
 # T3 Code
 
+This repository is Laxman Patel's personal fork of
+[T3 Code](https://github.com/pingdotgg/t3code). It tracks experiments and provider
+changes that may differ from upstream.
+
+## Fork Features
+
+- Replaced the Cursor provider implementation with the new `@cursor/sdk` agent API.
+- Added Cursor Cloud agent support, including repository URL, starting ref, and
+  auto-create PR settings.
+
 T3 Code is a minimal web GUI for coding agents (currently Codex, Claude, and OpenCode, more coming soon).
 
 ## Installation
