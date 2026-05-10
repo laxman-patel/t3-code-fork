@@ -24,6 +24,14 @@ vi.mock("@cursor/sdk", () => ({
 }));
 
 const PROVIDER = ProviderDriverKind.make("cursor");
+const GPT_5_5_LOW_MODEL = {
+  id: "gpt-5.5",
+  params: [
+    { id: "context", value: "272k" },
+    { id: "reasoning", value: "low" },
+    { id: "fast", value: "false" },
+  ],
+};
 
 function makeCursorSettings(overrides: Partial<CursorSettings> = {}): CursorSettings {
   return {
@@ -217,7 +225,7 @@ describe("CursorAdapterLive", () => {
 
     expect(cursorSdkMock.resume).toHaveBeenCalledWith("agent-existing", {
       apiKey: "test-cursor-api-key",
-      model: { id: "gpt-5.5" },
+      model: GPT_5_5_LOW_MODEL,
       local: { cwd: process.cwd() },
     });
   });
@@ -252,7 +260,7 @@ describe("CursorAdapterLive", () => {
 
     expect(cursorSdkMock.resume).toHaveBeenCalledWith("agent-existing", {
       apiKey: "test-cursor-api-key",
-      model: { id: "gpt-5.5" },
+      model: GPT_5_5_LOW_MODEL,
       local: { cwd: process.cwd() },
     });
   });
@@ -291,7 +299,7 @@ describe("CursorAdapterLive", () => {
 
     expect(cursorSdkMock.create).toHaveBeenCalledWith({
       apiKey: "test-cursor-api-key",
-      model: { id: "gpt-5.5" },
+      model: GPT_5_5_LOW_MODEL,
       local: { cwd: process.cwd() },
     });
   });
@@ -331,7 +339,7 @@ describe("CursorAdapterLive", () => {
 
     expect(cursorSdkMock.create).toHaveBeenCalledWith({
       apiKey: "test-cursor-api-key",
-      model: { id: "gpt-5.5" },
+      model: GPT_5_5_LOW_MODEL,
       cloud: {
         repos: [{ url: "https://github.com/acme/widgets", startingRef: "main" }],
         autoCreatePR: true,

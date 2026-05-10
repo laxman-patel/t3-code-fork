@@ -741,6 +741,18 @@ function defaultCursorReasoningValue(modelId: string): string {
   return modelId.toLowerCase().includes("opus") ? "medium" : "low";
 }
 
+function defaultCursorParameterValue(input: {
+  readonly modelId: string;
+  readonly parameterId: string;
+  readonly value: string;
+  readonly index: number;
+}): boolean {
+  if (isCursorReasoningParameterId(input.parameterId)) {
+    return input.value === defaultCursorReasoningValue(input.modelId);
+  }
+  return input.index === 0;
+}
+
 function buildCursorRuntimeOptionDescriptor(settings: Pick<CursorSettings, "cloudEnabled">) {
   return buildSelectOptionDescriptor({
     id: CURSOR_RUNTIME_OPTION_ID,
@@ -766,7 +778,7 @@ function buildCursorSdkModelCapabilities(
         buildSelectOptionDescriptor({
           id: parameter.id,
           label: parameter.displayName?.trim() || parameter.id,
-          options: parameter.values.flatMap((value) => {
+          options: parameter.values.flatMap((value, index) => {
             const normalized = value.value.trim();
             if (!normalized) {
               return [];
@@ -775,8 +787,12 @@ function buildCursorSdkModelCapabilities(
               {
                 value: normalized,
                 label: value.displayName?.trim() || normalized,
-                ...(isCursorReasoningParameterId(parameter.id) &&
-                normalized === defaultCursorReasoningValue(model.id)
+                ...(defaultCursorParameterValue({
+                  modelId: model.id,
+                  parameterId: parameter.id,
+                  value: normalized,
+                  index,
+                })
                   ? { isDefault: true }
                   : {}),
               },

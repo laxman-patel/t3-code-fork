@@ -291,17 +291,44 @@ function cursorSdkModelSelection(
 ): CursorSdkModelSelection {
   const sdkOptions = options?.filter((option) => option.id !== CURSOR_RUNTIME_OPTION_ID);
   const selectedModel = model?.trim();
+  const id = selectedModel ? resolveCursorAcpBaseModelId(selectedModel) : DEFAULT_CURSOR_SDK_MODEL;
+  const params = withCursorSdkDefaultParams(id, sdkOptions);
   return {
-    id: selectedModel ? resolveCursorAcpBaseModelId(selectedModel) : DEFAULT_CURSOR_SDK_MODEL,
-    ...(sdkOptions && sdkOptions.length > 0
+    id,
+    ...(params.length > 0
       ? {
-          params: sdkOptions.map((option) => ({
+          params: params.map((option) => ({
             id: option.id,
             value: String(option.value),
           })),
         }
       : {}),
   };
+}
+
+function withCursorSdkDefaultParams(
+  modelId: string,
+  options:
+    | ReadonlyArray<{
+        readonly id: string;
+        readonly value: string | boolean;
+      }>
+    | null
+    | undefined,
+): ReadonlyArray<{
+  readonly id: string;
+  readonly value: string | boolean;
+}> {
+  const next = [...(options ?? [])];
+  const hasParam = (id: string) => next.some((option) => option.id === id);
+
+  if (modelId === "gpt-5.5") {
+    if (!hasParam("context")) next.push({ id: "context", value: "272k" });
+    if (!hasParam("reasoning")) next.push({ id: "reasoning", value: "low" });
+    if (!hasParam("fast")) next.push({ id: "fast", value: "false" });
+  }
+
+  return next;
 }
 
 function appendToolUseBlocks(
