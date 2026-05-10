@@ -202,6 +202,7 @@ export interface TraitsMenuContentProps {
   onPromptChange: (prompt: string) => void;
   modelOptions?: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
+  visibleDescriptorIds?: ReadonlyArray<string> | null | undefined;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
 }
@@ -214,6 +215,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
+  visibleDescriptorIds,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -250,6 +252,13 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     modelOptions,
     allowPromptInjectedEffort,
   });
+  const visibleDescriptorIdSet = visibleDescriptorIds ? new Set(visibleDescriptorIds) : null;
+  const visibleSelectDescriptors = visibleDescriptorIdSet
+    ? selectDescriptors.filter((descriptor) => visibleDescriptorIdSet.has(descriptor.id))
+    : selectDescriptors;
+  const visibleBooleanDescriptors = visibleDescriptorIdSet
+    ? booleanDescriptors.filter((descriptor) => visibleDescriptorIdSet.has(descriptor.id))
+    : booleanDescriptors;
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
@@ -275,13 +284,16 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
   };
 
-  if (!hasAnyControls) {
+  if (
+    !hasAnyControls ||
+    (visibleSelectDescriptors.length === 0 && visibleBooleanDescriptors.length === 0)
+  ) {
     return null;
   }
 
   return (
     <>
-      {selectDescriptors.map((descriptor, index) => (
+      {visibleSelectDescriptors.map((descriptor, index) => (
         <div key={descriptor.id}>
           {index > 0 ? <MenuDivider /> : null}
           <MenuGroup>
@@ -316,9 +328,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           </MenuGroup>
         </div>
       ))}
-      {booleanDescriptors.map((descriptor, index) => (
+      {visibleBooleanDescriptors.map((descriptor, index) => (
         <div key={descriptor.id}>
-          {index > 0 || selectDescriptors.length > 0 ? <MenuDivider /> : null}
+          {index > 0 || visibleSelectDescriptors.length > 0 ? <MenuDivider /> : null}
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
               {descriptor.label}
@@ -354,6 +366,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isRuntimeMenuOpen, setIsRuntimeMenuOpen] = useState(false);
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
     getTraitsSectionVisibility({
       provider,
@@ -363,6 +376,13 @@ export const TraitsPicker = memo(function TraitsPicker({
       modelOptions,
       allowPromptInjectedEffort,
     });
+  const cursorRuntimeDescriptor =
+    provider === "cursor"
+      ? descriptors.find((descriptor) => descriptor.id === "cursorRuntime")
+      : null;
+  const mainDescriptors = cursorRuntimeDescriptor
+    ? descriptors.filter((descriptor) => descriptor.id !== cursorRuntimeDescriptor.id)
+    : descriptors;
   if (
     !shouldRenderTraitsControls({
       provider,
@@ -377,7 +397,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   }
 
   const triggerLabel =
-    descriptors
+    mainDescriptors
       .map((descriptor) => {
         if (ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id) {
           return "Ultrathink";
@@ -392,54 +412,99 @@ export const TraitsPicker = memo(function TraitsPicker({
       })
       .filter((label): label is string => typeof label === "string" && label.length > 0)
       .join(" · ") || "";
+  const runtimeTriggerLabel = cursorRuntimeDescriptor
+    ? getProviderOptionCurrentLabel(cursorRuntimeDescriptor)
+    : null;
 
   const isCodexStyle = provider === "codex";
 
   return (
-    <Menu
-      open={isMenuOpen}
-      onOpenChange={(open) => {
-        setIsMenuOpen(open);
-      }}
-    >
-      <MenuTrigger
-        render={
-          <Button
-            size="sm"
-            variant={triggerVariant ?? "ghost"}
-            className={cn(
-              isCodexStyle
-                ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-3 [&_svg]:mx-0"
-                : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
-              triggerClassName,
+    <div className="flex min-w-0 items-center gap-1">
+      {mainDescriptors.length > 0 ? (
+        <Menu
+          open={isMenuOpen}
+          onOpenChange={(open) => {
+            setIsMenuOpen(open);
+          }}
+        >
+          <MenuTrigger
+            render={
+              <Button
+                size="sm"
+                variant={triggerVariant ?? "ghost"}
+                className={cn(
+                  isCodexStyle
+                    ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-3 [&_svg]:mx-0"
+                    : "min-w-0 max-w-48 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
+                  triggerClassName,
+                )}
+              />
+            }
+          >
+            {isCodexStyle ? (
+              <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
+                {triggerLabel}
+                <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+              </span>
+            ) : (
+              <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+                <span className="truncate">{triggerLabel}</span>
+                <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+              </span>
             )}
-          />
-        }
-      >
-        {isCodexStyle ? (
-          <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
-            {triggerLabel}
-            <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-          </span>
-        ) : (
-          <>
-            <span>{triggerLabel}</span>
+          </MenuTrigger>
+          <MenuPopup align="start">
+            <TraitsMenuContent
+              provider={provider}
+              models={models}
+              model={model}
+              prompt={prompt}
+              onPromptChange={onPromptChange}
+              modelOptions={modelOptions}
+              allowPromptInjectedEffort={allowPromptInjectedEffort}
+              visibleDescriptorIds={mainDescriptors.map((descriptor) => descriptor.id)}
+              {...persistence}
+            />
+          </MenuPopup>
+        </Menu>
+      ) : null}
+      {cursorRuntimeDescriptor && runtimeTriggerLabel ? (
+        <Menu
+          open={isRuntimeMenuOpen}
+          onOpenChange={(open) => {
+            setIsRuntimeMenuOpen(open);
+          }}
+        >
+          <MenuTrigger
+            render={
+              <Button
+                size="sm"
+                variant={triggerVariant ?? "ghost"}
+                className={cn(
+                  "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
+                  triggerClassName,
+                )}
+              />
+            }
+          >
+            <span>{runtimeTriggerLabel}</span>
             <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
-          </>
-        )}
-      </MenuTrigger>
-      <MenuPopup align="start">
-        <TraitsMenuContent
-          provider={provider}
-          models={models}
-          model={model}
-          prompt={prompt}
-          onPromptChange={onPromptChange}
-          modelOptions={modelOptions}
-          allowPromptInjectedEffort={allowPromptInjectedEffort}
-          {...persistence}
-        />
-      </MenuPopup>
-    </Menu>
+          </MenuTrigger>
+          <MenuPopup align="start">
+            <TraitsMenuContent
+              provider={provider}
+              models={models}
+              model={model}
+              prompt={prompt}
+              onPromptChange={onPromptChange}
+              modelOptions={modelOptions}
+              allowPromptInjectedEffort={allowPromptInjectedEffort}
+              visibleDescriptorIds={[cursorRuntimeDescriptor.id]}
+              {...persistence}
+            />
+          </MenuPopup>
+        </Menu>
+      ) : null}
+    </div>
   );
 });

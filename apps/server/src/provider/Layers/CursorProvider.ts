@@ -753,6 +753,17 @@ function defaultCursorParameterValue(input: {
   return input.index === 0;
 }
 
+function cursorParameterOptionLabel(input: {
+  readonly parameterId: string;
+  readonly value: string;
+  readonly displayName: string | undefined;
+}): string {
+  if (input.parameterId === "fast" && input.value === "false") {
+    return "Slow";
+  }
+  return input.displayName?.trim() || input.value;
+}
+
 function buildCursorRuntimeOptionDescriptor(settings: Pick<CursorSettings, "cloudEnabled">) {
   return buildSelectOptionDescriptor({
     id: CURSOR_RUNTIME_OPTION_ID,
@@ -786,7 +797,11 @@ function buildCursorSdkModelCapabilities(
             return [
               {
                 value: normalized,
-                label: value.displayName?.trim() || normalized,
+                label: cursorParameterOptionLabel({
+                  parameterId: parameter.id,
+                  value: normalized,
+                  displayName: value.displayName,
+                }),
                 ...(defaultCursorParameterValue({
                   modelId: model.id,
                   parameterId: parameter.id,
