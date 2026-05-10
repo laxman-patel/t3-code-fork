@@ -14,6 +14,9 @@ import {
   checkCursorProviderStatus,
   discoverCursorModelCapabilitiesViaAcp,
   discoverCursorModelsViaAcp,
+  CURSOR_RUNTIME_CLOUD,
+  CURSOR_RUNTIME_LOCAL,
+  CURSOR_RUNTIME_OPTION_ID,
   getCursorFallbackModels,
   getCursorParameterizedModelPickerUnsupportedMessage,
   parseCursorAboutOutput,
@@ -310,9 +313,25 @@ describe("getCursorFallbackModels", () => {
   it("does not publish any built-in cursor models before ACP discovery", () => {
     expect(
       getCursorFallbackModels({
+        cloudEnabled: false,
         customModels: ["internal/cursor-model"],
       }).map((model) => model.slug),
     ).toEqual(["internal/cursor-model"]);
+  });
+
+  it("adds a per-thread runtime selector to fallback custom models", () => {
+    const [model] = getCursorFallbackModels({
+      cloudEnabled: true,
+      customModels: ["internal/cursor-model"],
+    });
+
+    expect(model?.capabilities?.optionDescriptors ?? []).toMatchObject([
+      selectDescriptor("cursorRuntime", "Runtime", [
+        { id: CURSOR_RUNTIME_LOCAL, label: "Local" },
+        { id: CURSOR_RUNTIME_CLOUD, label: "Cloud", isDefault: true },
+      ]),
+    ]);
+    expect(CURSOR_RUNTIME_OPTION_ID).toBe("cursorRuntime");
   });
 });
 

@@ -217,7 +217,7 @@ describe("CursorAdapterLive", () => {
 
     expect(cursorSdkMock.resume).toHaveBeenCalledWith("agent-existing", {
       apiKey: "test-cursor-api-key",
-      model: { id: "default" },
+      model: { id: "gpt-5.5" },
       local: { cwd: process.cwd() },
     });
   });
@@ -252,7 +252,46 @@ describe("CursorAdapterLive", () => {
 
     expect(cursorSdkMock.resume).toHaveBeenCalledWith("agent-existing", {
       apiKey: "test-cursor-api-key",
-      model: { id: "default" },
+      model: { id: "gpt-5.5" },
+      local: { cwd: process.cwd() },
+    });
+  });
+
+  it("lets a thread select local runtime even when Cursor cloud is enabled by default", async () => {
+    const agent = makeMockAgent();
+    cursorSdkMock.create.mockResolvedValue(agent);
+
+    await runAdapterEffect(
+      Effect.gen(function* () {
+        const adapter = yield* makeCursorAdapter(
+          makeCursorSettings({
+            cloudEnabled: true,
+            cloudRepositoryUrl: "https://github.com/acme/widgets",
+          }),
+        );
+        const session = yield* adapter.startSession({
+          provider: PROVIDER,
+          threadId: ThreadId.make("cursor-sdk-local-runtime-option"),
+          cwd: process.cwd(),
+          runtimeMode: "approval-required",
+          modelSelection: {
+            instanceId: "cursor" as never,
+            model: "gpt-5.5",
+            options: [{ id: "cursorRuntime", value: "local" }],
+          },
+        });
+
+        expect(session.resumeCursor).toEqual({
+          schemaVersion: 2,
+          agentId: "agent-1",
+          runtime: "local",
+        });
+      }),
+    );
+
+    expect(cursorSdkMock.create).toHaveBeenCalledWith({
+      apiKey: "test-cursor-api-key",
+      model: { id: "gpt-5.5" },
       local: { cwd: process.cwd() },
     });
   });

@@ -3,7 +3,9 @@
  *
  * @module CursorAdapterLive
  */
+import { execFile } from "node:child_process";
 import * as nodePath from "node:path";
+import { promisify } from "node:util";
 
 import {
   ApprovalRequestId,
@@ -32,6 +34,7 @@ import {
   type ToolUseBlock,
 } from "@cursor/sdk";
 import { Effect, FileSystem, Queue, Random, Ref, Stream } from "effect";
+import { getProviderOptionStringSelectionValue } from "@t3tools/shared/model";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -43,11 +46,18 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
-import { DEFAULT_CURSOR_SDK_MODEL, resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
+import {
+  CURSOR_RUNTIME_CLOUD,
+  CURSOR_RUNTIME_LOCAL,
+  CURSOR_RUNTIME_OPTION_ID,
+  DEFAULT_CURSOR_SDK_MODEL,
+  resolveCursorAcpBaseModelId,
+} from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = ProviderDriverKind.make("cursor");
 const CURSOR_SDK_RESUME_VERSION = 2 as const;
+const execFileAsync = promisify(execFile);
 
 export interface CursorAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
@@ -113,9 +123,48 @@ function requireApiKey(settings: CursorSettings, operation: string): string {
 function resolveCursorSdkRuntime(
   settings: CursorSettings,
   resume: CursorSdkResumeCursor | undefined,
+  selectedRuntime: string | undefined,
 ): "local" | "cloud" {
-  return resume?.runtime ?? (settings.cloudEnabled ? "cloud" : "local");
+  if (resume?.runtime) return resume.runtime;
+  if (selectedRuntime === CURSOR_RUNTIME_CLOUD) return "cloud";
+  if (selectedRuntime === CURSOR_RUNTIME_LOCAL) return "local";
+  return settings.cloudEnabled ? "cloud" : "local";
 }
+
+function normalizeGitRemoteUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\.git$/i, "");
+  const sshMatch = /^git@([^:]+):(.+)$/.exec(trimmed);
+  if (sshMatch) {
+    return `https://${sshMatch[1]}/${sshMatch[2]}`;
+  }
+  return trimmed;
+}
+
+function missingCursorCloudRepositoryUrlError(): ProviderAdapterValidationError {
+  return new ProviderAdapterValidationError({
+    provider: PROVIDER,
+    operation: "startSession",
+    issue:
+      "Cursor Cloud agents require a Git origin remote or a repository URL in Settings > Providers > Cursor.",
+  });
+}
+
+const resolveGitRemoteRepositoryUrl = (
+  cwd: string,
+): Effect.Effect<string, ProviderAdapterValidationError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const { stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], { cwd });
+      return normalizeGitRemoteUrl(stdout);
+    },
+    catch: () => missingCursorCloudRepositoryUrlError(),
+  }).pipe(
+    Effect.flatMap((repositoryUrl) =>
+      repositoryUrl
+        ? Effect.succeed(repositoryUrl)
+        : Effect.fail(missingCursorCloudRepositoryUrlError()),
+    ),
+  );
 
 function buildCursorSdkAgentOptions(input: {
   readonly settings: CursorSettings;
@@ -124,6 +173,7 @@ function buildCursorSdkAgentOptions(input: {
   readonly cwd: string;
   readonly operation: string;
   readonly runtime: "local" | "cloud";
+  readonly repositoryUrl: string | undefined;
 }): AgentOptions {
   if (input.runtime === "local") {
     return {
@@ -133,7 +183,7 @@ function buildCursorSdkAgentOptions(input: {
     };
   }
 
-  const repositoryUrl = input.settings.cloudRepositoryUrl.trim();
+  const repositoryUrl = input.repositoryUrl?.trim() || input.settings.cloudRepositoryUrl.trim();
   if (!repositoryUrl) {
     throw new ProviderAdapterValidationError({
       provider: PROVIDER,
@@ -239,11 +289,13 @@ function cursorSdkModelSelection(
     | null
     | undefined,
 ): CursorSdkModelSelection {
+  const sdkOptions = options?.filter((option) => option.id !== CURSOR_RUNTIME_OPTION_ID);
+  const selectedModel = model?.trim();
   return {
-    id: resolveCursorAcpBaseModelId(model) || DEFAULT_CURSOR_SDK_MODEL,
-    ...(options && options.length > 0
+    id: selectedModel ? resolveCursorAcpBaseModelId(selectedModel) : DEFAULT_CURSOR_SDK_MODEL,
+    ...(sdkOptions && sdkOptions.length > 0
       ? {
-          params: options.map((option) => ({
+          params: sdkOptions.map((option) => ({
             id: option.id,
             value: String(option.value),
           })),
@@ -374,7 +426,15 @@ export function makeCursorAdapter(
           input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
         const model = cursorSdkModelSelection(selected?.model, selected?.options);
         const resume = parseCursorSdkResume(input.resumeCursor);
-        const runtime = resolveCursorSdkRuntime(settings, resume);
+        const runtime = resolveCursorSdkRuntime(
+          settings,
+          resume,
+          getProviderOptionStringSelectionValue(selected?.options, CURSOR_RUNTIME_OPTION_ID),
+        );
+        const repositoryUrl =
+          runtime === "cloud"
+            ? settings.cloudRepositoryUrl.trim() || (yield* resolveGitRemoteRepositoryUrl(cwd))
+            : undefined;
         const agentOptions = buildCursorSdkAgentOptions({
           settings,
           apiKey,
@@ -382,6 +442,7 @@ export function makeCursorAdapter(
           cwd,
           operation: "startSession",
           runtime,
+          repositoryUrl,
         });
 
         const agent = yield* Effect.tryPromise({

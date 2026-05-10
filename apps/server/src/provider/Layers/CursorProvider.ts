@@ -50,6 +50,9 @@ const _CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 const CURSOR_ACP_MODEL_CAPABILITY_TIMEOUT = "4 seconds";
 const CURSOR_ACP_MODEL_DISCOVERY_CONCURRENCY = 4;
 const CURSOR_PARAMETERIZED_MODEL_PICKER_MIN_VERSION_DATE = 2026_04_08;
+export const CURSOR_RUNTIME_OPTION_ID = "cursorRuntime";
+export const CURSOR_RUNTIME_LOCAL = "local";
+export const CURSOR_RUNTIME_CLOUD = "cloud";
 export const CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES = {
   _meta: {
     parameterizedModelPicker: true,
@@ -680,12 +683,19 @@ export const discoverCursorModelCapabilitiesViaAcp = (
   );
 
 export function getCursorFallbackModels(
-  cursorSettings: Pick<CursorSettings, "customModels">,
+  cursorSettings: Pick<CursorSettings, "customModels" | "cloudEnabled">,
 ): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings([], PROVIDER, cursorSettings.customModels, EMPTY_CAPABILITIES);
+  return providerModelsFromSettings(
+    [],
+    PROVIDER,
+    cursorSettings.customModels,
+    createModelCapabilities({
+      optionDescriptors: [buildCursorRuntimeOptionDescriptor(cursorSettings)],
+    }),
+  );
 }
 
-export const DEFAULT_CURSOR_SDK_MODEL = "composer-2";
+export const DEFAULT_CURSOR_SDK_MODEL = "gpt-5.5";
 
 function hasCursorApiKey(cursorSettings: Pick<CursorSettings, "apiKey">): boolean {
   return cursorSettings.apiKey.trim().length > 0;
@@ -722,7 +732,31 @@ function cursorSdkAuthFromError(error: unknown): ServerProviderAuth {
   return { status: "unknown" };
 }
 
-function buildCursorSdkModelCapabilities(model: SDKModel): ModelCapabilities {
+function isCursorReasoningParameterId(id: string): boolean {
+  const normalized = id.trim().toLowerCase();
+  return normalized === "reasoning" || normalized === "effort" || normalized.includes("reasoning");
+}
+
+function defaultCursorReasoningValue(modelId: string): string {
+  return modelId.toLowerCase().includes("opus") ? "medium" : "low";
+}
+
+function buildCursorRuntimeOptionDescriptor(settings: Pick<CursorSettings, "cloudEnabled">) {
+  return buildSelectOptionDescriptor({
+    id: CURSOR_RUNTIME_OPTION_ID,
+    label: "Runtime",
+    description: "Choose whether this Cursor thread runs locally or in Cursor Cloud.",
+    options: [
+      { value: CURSOR_RUNTIME_LOCAL, label: "Local", isDefault: !settings.cloudEnabled },
+      { value: CURSOR_RUNTIME_CLOUD, label: "Cloud", isDefault: settings.cloudEnabled },
+    ],
+  });
+}
+
+function buildCursorSdkModelCapabilities(
+  model: SDKModel,
+  settings: Pick<CursorSettings, "cloudEnabled">,
+): ModelCapabilities {
   const optionDescriptors =
     model.parameters?.flatMap((parameter) => {
       if (!parameter.values || parameter.values.length === 0) {
@@ -741,6 +775,10 @@ function buildCursorSdkModelCapabilities(model: SDKModel): ModelCapabilities {
               {
                 value: normalized,
                 label: value.displayName?.trim() || normalized,
+                ...(isCursorReasoningParameterId(parameter.id) &&
+                normalized === defaultCursorReasoningValue(model.id)
+                  ? { isDefault: true }
+                  : {}),
               },
             ];
           }),
@@ -748,11 +786,14 @@ function buildCursorSdkModelCapabilities(model: SDKModel): ModelCapabilities {
       ];
     }) ?? [];
 
-  return createModelCapabilities({ optionDescriptors });
+  return createModelCapabilities({
+    optionDescriptors: [...optionDescriptors, buildCursorRuntimeOptionDescriptor(settings)],
+  });
 }
 
 function cursorSdkModelsToServerModels(
   models: ReadonlyArray<SDKModel>,
+  settings: Pick<CursorSettings, "cloudEnabled">,
 ): ReadonlyArray<ServerProviderModel> {
   const seen = new Set<string>();
   const discovered = models.flatMap((model) => {
@@ -766,7 +807,7 @@ function cursorSdkModelsToServerModels(
         slug,
         name: model.displayName?.trim() || slug,
         isCustom: false,
-        capabilities: buildCursorSdkModelCapabilities(model),
+        capabilities: buildCursorSdkModelCapabilities(model, settings),
       } satisfies ServerProviderModel,
     ];
   });
@@ -778,9 +819,11 @@ function cursorSdkModelsToServerModels(
   return [
     {
       slug: DEFAULT_CURSOR_SDK_MODEL,
-      name: "Composer 2",
+      name: "GPT 5.5",
       isCustom: false,
-      capabilities: EMPTY_CAPABILITIES,
+      capabilities: createModelCapabilities({
+        optionDescriptors: [buildCursorRuntimeOptionDescriptor(settings)],
+      }),
     },
   ];
 }
@@ -789,7 +832,7 @@ const discoverCursorModelsViaSdk = (cursorSettings: CursorSettings) =>
   Effect.tryPromise({
     try: () => Cursor.models.list({ apiKey: cursorSettings.apiKey.trim() }),
     catch: (cause) => new CursorSdkProviderError("models.list", cause),
-  }).pipe(Effect.map(cursorSdkModelsToServerModels));
+  }).pipe(Effect.map((models) => cursorSdkModelsToServerModels(models, cursorSettings)));
 
 const readCursorAccountViaSdk = (cursorSettings: CursorSettings) =>
   Effect.tryPromise({

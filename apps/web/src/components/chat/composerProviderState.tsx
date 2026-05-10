@@ -1,5 +1,6 @@
 import {
   type ProviderDriverKind,
+  type ProviderOptionDescriptor,
   type ProviderOptionSelection,
   type ScopedThreadRef,
   type ServerProviderModel,
@@ -44,13 +45,63 @@ type TraitsRenderInput = {
   onPromptChange: (prompt: string) => void;
 };
 
+function isCursorProvider(provider: ProviderDriverKind): boolean {
+  return provider === "cursor";
+}
+
+function isReasoningDescriptor(descriptor: ProviderOptionDescriptor): boolean {
+  const normalizedId = descriptor.id.toLowerCase();
+  const normalizedLabel = descriptor.label.toLowerCase();
+  return (
+    normalizedId === "reasoning" ||
+    normalizedId === "effort" ||
+    normalizedId.includes("reasoning") ||
+    normalizedLabel.includes("reasoning") ||
+    normalizedLabel.includes("effort")
+  );
+}
+
+function isPrimaryPromptEffortDescriptor(input: {
+  provider: ProviderDriverKind;
+  descriptor: ProviderOptionDescriptor;
+}): boolean {
+  if (input.descriptor.type !== "select") return false;
+  return !isCursorProvider(input.provider) || input.descriptor.id !== "cursorRuntime";
+}
+
+function normalizeCursorDescriptorDefaults(input: {
+  provider: ProviderDriverKind;
+  model: string;
+  descriptors: ReadonlyArray<ProviderOptionDescriptor>;
+}): ReadonlyArray<ProviderOptionDescriptor> {
+  if (!isCursorProvider(input.provider) || !input.model.toLowerCase().includes("opus")) {
+    return input.descriptors;
+  }
+
+  return input.descriptors.map((descriptor) => {
+    if (
+      descriptor.type !== "select" ||
+      !isReasoningDescriptor(descriptor) ||
+      descriptor.currentValue !== "low" ||
+      !descriptor.options.some((option) => option.id === "medium")
+    ) {
+      return descriptor;
+    }
+    return { ...descriptor, currentValue: "medium" };
+  });
+}
+
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {
   const { provider, model, models, prompt, modelOptions } = input;
   const caps = getProviderModelCapabilities(models, model, provider);
-  const descriptors = getProviderOptionDescriptors({ caps, selections: modelOptions });
+  const descriptors = normalizeCursorDescriptorDefaults({
+    provider,
+    model,
+    descriptors: getProviderOptionDescriptors({ caps, selections: modelOptions }),
+  });
   const primarySelectDescriptor = descriptors.find(
     (descriptor): descriptor is Extract<(typeof descriptors)[number], { type: "select" }> =>
-      descriptor.type === "select",
+      isPrimaryPromptEffortDescriptor({ provider, descriptor }),
   );
   const primaryValue = getProviderOptionCurrentValue(primarySelectDescriptor ?? null);
   const promptEffort = typeof primaryValue === "string" ? primaryValue : null;

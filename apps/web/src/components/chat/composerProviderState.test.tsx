@@ -16,6 +16,7 @@ import {
 // vary only the descriptor shape per scenario.
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
+const CURSOR_PROVIDER: ProviderDriverKind = ProviderDriverKind.make("cursor");
 const MODEL = "test-model";
 
 function selectDescriptor(
@@ -42,10 +43,9 @@ function booleanDescriptor(id: string): Extract<ProviderOptionDescriptor, { type
 
 function modelWith(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
+  slug = MODEL,
 ): ReadonlyArray<ServerProviderModel> {
-  return [
-    { slug: MODEL, name: MODEL, isCustom: false, capabilities: { optionDescriptors: descriptors } },
-  ];
+  return [{ slug, name: slug, isCustom: false, capabilities: { optionDescriptors: descriptors } }];
 }
 
 function selections(
@@ -175,6 +175,53 @@ describe("getComposerProviderState", () => {
       provider: PROVIDER,
       promptEffort: null,
       modelOptionsForDispatch: undefined,
+    });
+  });
+
+  it("normalizes Cursor Opus reasoning from low to medium when switching models", () => {
+    const model = "claude-opus-4-7";
+    const state = getComposerProviderState({
+      provider: CURSOR_PROVIDER,
+      model,
+      models: modelWith(
+        [
+          selectDescriptor("reasoning", [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium", isDefault: true },
+            { id: "high", label: "High" },
+          ]),
+        ],
+        model,
+      ),
+      prompt: "",
+      modelOptions: selections(["reasoning", "low"]),
+    });
+
+    expect(state).toEqual({
+      provider: CURSOR_PROVIDER,
+      promptEffort: "medium",
+      modelOptionsForDispatch: selections(["reasoning", "medium"]),
+    });
+  });
+
+  it("does not treat Cursor runtime as prompt effort", () => {
+    const state = getComposerProviderState({
+      provider: CURSOR_PROVIDER,
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("cursorRuntime", [
+          { id: "local", label: "Local", isDefault: true },
+          { id: "cloud", label: "Cloud" },
+        ]),
+      ]),
+      prompt: "",
+      modelOptions: selections(["cursorRuntime", "cloud"]),
+    });
+
+    expect(state).toEqual({
+      provider: CURSOR_PROVIDER,
+      promptEffort: null,
+      modelOptionsForDispatch: selections(["cursorRuntime", "cloud"]),
     });
   });
 
